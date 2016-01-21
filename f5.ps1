@@ -4,7 +4,7 @@ $script = $MyInvocation.MyCommand.Name
 $output_path = "c:\Users\Desktop\"
 $output_file="$script-out.txt"
 $last_run_file = "$script-out-last-run.txt"
-$device = "d2tsttlb01"
+$device = "xxxx"
 
 $style = "<style>BODY{font-family: Arial; font-size: 10pt;}"
 $style = $style + "TABLE{border: 1px solid black; border-collapse: collapse;}"
