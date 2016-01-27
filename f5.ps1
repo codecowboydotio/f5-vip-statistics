@@ -1,10 +1,15 @@
 Add-PSSnapin iControlSnapIn
 
 $script = $MyInvocation.MyCommand.Name
-$output_path = "c:\Users\xxx\Desktop\"
+$output_path = "c:\Users\\Desktop\f5\"
 $config_file = "$output_path\f5.config"
-$username = "xxx"
-$password = "xxx"
+$logfile = "$output_path\$script.log"
+$logflag = "silent"
+$username = ""
+$password = ""
+
+
+import-module $output_path\logger.psm1
 
 # define this as an arraylist so that items can be removed from it (i.e. it's not fixed length)
 [System.Collections.ArrayList]$device_list = Get-Content $config_file
@@ -17,19 +22,26 @@ $active_device = @()
 foreach ($device in $device_list)
 {
     # log in to the device
-    $login = Initialize-F5.iControl -Hostname $device -Username $username -Password $password
-
-    # Check to make sure we are on the active device.
+    $login = Initialize-F5.iControl -ErrorAction SilentlyContinue -Hostname $device -Username $username -Password $password
+    if ( $login -ne "True" )
+    {
+        Write-host "An Error occurred while authenticating to $device"
+        logger "$logfile" "$logflag" "ERROR" "$device Authentication Error"       
+    }
+ 
+    # Check to make sure we are on the active device.  
     $failover_state = Get-F5.DBVariable | Where {$_.Name -eq "Failover.State"} | Select Value
 
     if ($failover_state.Value -eq "active")
     {
         $active_device+=$device
-        write-host -ForegroundColor DarkGreen $device + "is currently active."
+        write-host -ForegroundColor DarkGreen $device "is currently active."
+        logger "$logfile" "$logflag" "INFO" "$device is currently active."
     }
     else
     {
-        write-host -ForegroundColor Red $device + "is not currently active."
+        write-host -ForegroundColor Red $device "is not currently active."
+        logger "$logfile" "$logflag" "INFO" "$device is not currently active."
     }
 } #end of foreach loop
 
@@ -41,11 +53,11 @@ $style = $style + "TD{border: 1px solid black; padding: 5px; }"
 $style = $style + "</style>"
 
 
-
+echo "<HTML>" > $output_path\index.html
 foreach ($device in $active_device)
 {
-
     Write-host -ForegroundColor Yellow Processing $device
+    logger "$logfile" "$logflag" "INFO" "$device Processing Begin."
     $output_file="$script-$device-out.txt"
     $last_run_file = "$script-$device-out-last-run.txt"
 
@@ -64,6 +76,7 @@ foreach ($device in $active_device)
     $ErrorActionPreference= 'silentlycontinue'
     Try
     {
+        #$login = Initialize-F5.iControl -Hostname $device -Username "asdasdas" -Password "asdsadas"
         $login = Initialize-F5.iControl -Hostname $device -Username $username -Password $password
         #$login = Initialize-F5.iControl -Hostname $device -Credentials (Get-Credential -Message "Enter your F5 username and password")
     }
@@ -76,6 +89,7 @@ foreach ($device in $active_device)
     if ($login -ne "True") 
     { 
         Write-host -foregroundcolor Red "[ERROR: 2] $device Login not correct."
+        logger "$logfile" "$logflag" "ERROR" "$device Login not correct."
         exit 2;
     }
 
@@ -155,6 +169,7 @@ foreach ($device in $active_device)
 
     # create a custom object that can be added to an array with current and previous values.
     # much neater way of doing this because it means that I can use a custom object to contain only the values I need.
+    Write-Host "Building object table."
     $array = @()
     foreach ($item in $last_run)
     {
@@ -166,14 +181,26 @@ foreach ($device in $active_device)
         $current_value = $current_run | where {$_.VIP -eq $item.VIP} | select VALUE
         $object | Add-Member -Name 'CurrentTotalConnections' -MemberType NoteProperty -Value ([int64]$current_value.VALUE)
         $difference = $object.CurrentTotalConnections - $object.PreviousTotalConnections
-        $object | Add-Member -Name 'Difference' -MemberType NoteProperty -Value ([int64]$difference)
+        if ( $difference -lt 0 )
+        {
+            $object | Add-Member -Name 'Difference' -MemberType NoteProperty -Value "N/A"
+        }
+        else
+        {
+            $object | Add-Member -Name 'Difference' -MemberType NoteProperty -Value ([int64]$difference)
+        }
         $array += $object   
     }
 
     # loop through my new custom array and only get the ones that have increased.
+    Write-Host "Writing HTML files."
     $array | where {$_.PreviousTotalConnections -ne $_.CurrentTotalConnections} | ConvertTo-Html -Head $style > $output_path\$script-$device-differences.html
     $array | ConvertTo-Html -Head $style > $output_path\$script-$device-totals.html
 
     Write-host -ForegroundColor Yellow Completed Processing $device
     write-host "--------------------------------------------------------"
+    echo "<a href=$script-$device-totals.html target=""iframe"">$device</a><br>" >> $output_path\index.html
+    logger "$logfile" "$logflag" "INFO" "$device Processing End."
 } #end device foreach
+echo "<iframe name=""iframe"" width=2000 height=4000 frameborder=0></iframe>" >> $output_path\index.html
+
